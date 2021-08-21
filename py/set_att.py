@@ -1,4 +1,0 @@
-"""
-    Set Transformer
-    ISAB MAB
-"""

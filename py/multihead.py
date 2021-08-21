@@ -1,7 +1,8 @@
+#-*-coding:utf-8-*-
 """
     Multi-head attention block
     @author hqy
-    @date 2021.8.19
+    @date 2021.8.20
 """
 import torch
 import torch.nn.functional as F
@@ -9,13 +10,19 @@ from torch.autograd import Variable as Var
 from torch.nn.parameter import Parameter
 from torch import nn
 
+"""
+    Input dim: Q, K, V (n, token_num, d_model)
+    Output dim: Related to V, output is (n, token_num, dv_model)
+"""
 class Multihead(nn.Module):
     def __init__(self, batch_size, head_num = 8, dk_model = 512, dv_model = 512):
         super().__init__()
         self.dk = (dk_model // head_num)
         self.dv = (dv_model // head_num)
-        self.Wqs = nn.ParameterList([Parameter(torch.normal(batch_size, dk_model, self.dk)) for _ in range(head_num)]) 
-        self.Wvs = nn.ParameterList([Parameter(torch.normal(batch_size, dv_model, self.dv)) for _ in range(head_num)]) 
+        dk_shape = (batch_size, dk_model, self.dk)
+        dv_shape = (batch_size, dv_model, self.dv)
+        self.Wqs = nn.ParameterList([Parameter(torch.normal(0, 1, dk_shape), requires_grad = True) for _ in range(head_num)]) 
+        self.Wvs = nn.ParameterList([Parameter(torch.normal(0, 1, dv_shape), requires_grad = True) for _ in range(head_num)]) 
         self.Wo = Parameter(torch.normal(batch_size, dv_model, dv_model))
         self.batch_size = batch_size
 
@@ -35,9 +42,11 @@ class Multihead(nn.Module):
         Qs = [Q @ self.Wqs[i] for i in range(self.head_num)]
         Ks = [K @ self.Wqs[i] for i in range(self.head_num)]
         Vs = [V @ self.Wvs[i] for i in range(self.head_num)]
+        # each head outputs (n, token_num, token_num) @ (n, token_num, dv_model / head)
         heads = [self.singleHeadQKVAtt(Qs[i], Ks[i], Vs[i]) for i in range(self.head_num)]
         H = torch.cat(heads, dim = -1)
-        return H @ self.Wo
+        # H is (n, token_num, dv_model)
+        return H @ self.Wo      # (token_num, dv_model) * (dv_model, dv_model)
 
     # this might be based on Multi-head QKV Attension
     def forward(self, Q, K, V):
