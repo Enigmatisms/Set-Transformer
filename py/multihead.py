@@ -6,12 +6,18 @@
 import torch
 import torch.nn.functional as F
 from torch.autograd import Variable as Var
+from torch.nn.parameter import Parameter
 from torch import nn
 
 class Multihead(nn.Module):
-    def __init__(self):
+    def __init__(self, batch_size, head_num = 8, dk_model = 512, dv_model = 512):
         super().__init__()
-
+        self.dk = (dk_model // head_num)
+        self.dv = (dv_model // head_num)
+        self.Wqs = nn.ParameterList([Parameter(torch.normal(batch_size, dk_model, self.dk)) for _ in range(head_num)]) 
+        self.Wvs = nn.ParameterList([Parameter(torch.normal(batch_size, dv_model, self.dv)) for _ in range(head_num)]) 
+        self.Wo = Parameter(torch.normal(batch_size, dv_model, dv_model))
+        self.batch_size = batch_size
 
     """
         Single head QKV attention
@@ -25,9 +31,14 @@ class Multihead(nn.Module):
         return proba @ V
 
     # Multi-head QKV Attention function, which should map the Q K V to other dimensions
-    def multiHeadQKVAtt(self, Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, num_head = 8):
-        pass
+    def multiHeadQKVAtt(self, Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor):
+        Qs = [Q @ self.Wqs[i] for i in range(self.head_num)]
+        Ks = [K @ self.Wqs[i] for i in range(self.head_num)]
+        Vs = [V @ self.Wvs[i] for i in range(self.head_num)]
+        heads = [self.singleHeadQKVAtt(Qs[i], Ks[i], Vs[i]) for i in range(self.head_num)]
+        H = torch.cat(heads, dim = -1)
+        return H @ self.Wo
 
     # this might be based on Multi-head QKV Attension
-    def forward(self, x):
-        pass
+    def forward(self, Q, K, V):
+        return self.multiHeadQKVAtt(Q, K, V)
