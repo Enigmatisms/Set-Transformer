@@ -1,9 +1,7 @@
-#-*-coding:utf-8-*-
 """
-    Set Transformer
-    MAB SAB ISAB Modules
+    Mutable input output attention block
     @author hqy
-    @date 2021.8.21
+    @date 2021.8.22
 """
 
 import torch
@@ -11,47 +9,50 @@ from torch import nn
 from multihead import Multihead
 from torch.nn.parameter import Parameter
 
-"""
-    what is rFF in the paper? I just treat rFF as a single-layer perceptrons
-    Multi-head Attension Block
-    MAB outputs have shape: (n, dk_model, dv_model), which is related to the dimensionality of X
-    batch_size / X token num / Y dimensionality
-"""
+# MAB output shape (n, x_token, dim_v)
 class MAB(nn.Module):
-    def __init__(self, batch_size, head_num = 8, dk_model = 512, dv_model = 512, use_layer_norm = True):
+    def __init__(self, batch_size, head_num, dim_q, dim_k, dim_v, use_layer_norm = True):
         super().__init__()
-        self.att = Multihead(batch_size, head_num, dk_model, dv_model)
-        self.ff = nn.Linear(dv_model, dv_model)
-        self.layer_norm = None
-        if use_layer_norm == True:
-            self.layer_norm = nn.LayerNorm(dv_model)
+        self.lin_dq = nn.Linear(dim_q, dim_v)
+        self.lin_dk = nn.Linear(dim_k, dim_v)
+        # K, V should be different, therefore adapts different transformation
+        # In MAB, MAB(Q, K), K = V, therefore, input should be transformed
+        self.lin_dv = nn.Linear(dim_k, dim_v)
+        # for Multihead Attention Block, Q & K must have the same dim
+        self.att = Multihead(batch_size, head_num, dim_v, dim_v)
+        self.ln0 = self.ln1 = None
+        if use_layer_norm:
+            self.ln0 = nn.LayerNorm(dim_v)
+            self.ln1 = nn.LayerNorm(dim_v)
+        self.ff = nn.Linear(dim_v, dim_v)
 
     def forward(self, X, Y):
-        H = self.att(X, Y, Y)
-        if not self.layer_norm is None:
-            H = self.layer_norm(H)
-        H = H + self.ff(H)
-        if not self.layer_norm is None:
-            H = self.layer_norm(H)
+        Q = self.lin_dq(X)
+        K = self.lin_dk(Y)
+        V = self.lin_dv(Y)
+        H = Q + self.att(Q, K, V)
+        if not self.ln0 is None:
+            H = self.ln0(H)
+        H = self.ff(H) + H
+        if not self.ln1 is None:
+            return self.ln1(H)
         return H
 
+# SAB outputs (n_batch, x_token, dim_out)
 class SAB(nn.Module):
-    def __init__(self, batch_size, head_num = 8, d_model = 512, use_layer_norm = True):
+    def __init__(self, batch_size, head_num, dim_in, dim_out, use_layer_norm = True):
         super().__init__()
-        self.mab = MAB(batch_size, head_num, d_model, d_model, use_layer_norm)
+        self.mab = MAB(batch_size, head_num, dim_in, dim_in, dim_out, use_layer_norm)
     
     def forward(self, X):
         return self.mab(X, X)
 
-# Output is (n, m_induce, d_model)
 class ISAB(nn.Module):
-    def __init__(self, batch_size, head_num = 8, d_model = 512, m_induce = 16, use_layer_norm = True):
+    def __init__(self, batch_size, head_num, m, dim_in, dim_out, use_layer_norm = True):
         super().__init__()
-        # This is correct, the normal input should have (n_batch, n_token, n_embedding_dim)
-        shape = (batch_size, m_induce, d_model)
-        self.inducing_point = Parameter(torch.normal(0, 1, shape), requires_grad = True)
-        self.mab1 = MAB(batch_size, head_num, d_model, d_model, use_layer_norm)
-        self.mab2 = MAB(batch_size, head_num, d_model, d_model, use_layer_norm)
+        self.inducing_point = Parameter(torch.normal(0, 1, (batch_size, m, dim_in)))
+        self.mab1 = MAB(batch_size, head_num, dim_in, dim_in, dim_out, use_layer_norm)
+        self.mab2 = MAB(batch_size, head_num, dim_out, dim_out, dim_out, use_layer_norm)
 
     def forward(self, X):
         H = self.mab1(self.inducing_point, X)

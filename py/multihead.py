@@ -6,13 +6,13 @@
 """
 import torch
 import torch.nn.functional as F
-from torch.autograd import Variable as Var
 from torch.nn.parameter import Parameter
 from torch import nn
 
 """
     Input dim: Q, K, V (n, token_num, d_model)
     Output dim: Related to V, output is (n, token_num, dv_model)
+    In Set transformer, token num is the length of sequence
 """
 class Multihead(nn.Module):
     def __init__(self, batch_size, head_num = 8, dk_model = 512, dv_model = 512):
@@ -21,9 +21,11 @@ class Multihead(nn.Module):
         self.dv = (dv_model // head_num)
         dk_shape = (batch_size, dk_model, self.dk)
         dv_shape = (batch_size, dv_model, self.dv)
+        # obviously, Wq, Wk, Wv can be nn.ModuleList([nn.Linear...])
         self.Wqs = nn.ParameterList([Parameter(torch.normal(0, 1, dk_shape), requires_grad = True) for _ in range(head_num)]) 
+        self.Wks = nn.ParameterList([Parameter(torch.normal(0, 1, dk_shape), requires_grad = True) for _ in range(head_num)]) 
         self.Wvs = nn.ParameterList([Parameter(torch.normal(0, 1, dv_shape), requires_grad = True) for _ in range(head_num)]) 
-        self.Wo = Parameter(torch.normal(batch_size, dv_model, dv_model))
+        self.Wo = Parameter(torch.normal(0, 1, (batch_size, dv_model, dv_model)))
         self.batch_size = batch_size
 
     """
