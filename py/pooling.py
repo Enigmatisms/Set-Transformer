@@ -16,14 +16,14 @@ from torch.nn.parameter import Parameter
     S has shape: (n, k_seeds, n_embedding_dim), which is similar to inducing points
 """
 class PMA(nn.Module):
-    def __init__(self, batch_size, k_seeds, head_num, d_model, use_layer_norm = True):
+    def __init__(self, k_seeds, head_num, d_model, use_layer_norm = True):
         super().__init__()
-        self.S = Parameter(torch.normal(0, 1, (batch_size, k_seeds, d_model)))
-        self.mab = MAB(batch_size, head_num, d_model, d_model, d_model, use_layer_norm)
-        self.lin = nn.Linear(d_model, d_model)
+        # this should be "repeat" since for every input, S should be the same
+        self.S = Parameter(torch.normal(0, 1, (k_seeds, d_model)), requires_grad = True)
+        self.mab = MAB(head_num, d_model, d_model, d_model, use_layer_norm)
         self.sab = None
         if k_seeds > 1:
-            self.sab = SAB(batch_size, head_num, d_model, d_model, use_layer_norm)
+            self.sab = SAB(head_num, d_model, d_model, use_layer_norm)
         """
             For the output of SAB(PMA(S, Z)), the followings hold:
             - PMA output has shape: (n, k, d_model)
@@ -31,7 +31,7 @@ class PMA(nn.Module):
         """
 
     def forward(self, Z):
-        H = self.mab(self.S, Z)
-        if self.sab is None:
-            return self.lin(H)
-        return self.lin(self.sab(H))        # transform the last dim
+        H = self.mab(self.S.repeat(Z.shape[0], 1, 1), Z)
+        if not self.sab is None:
+            return self.sab(H)        # transform the last dim
+        return H
