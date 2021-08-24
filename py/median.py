@@ -11,14 +11,14 @@ from att_blocks import MAB, SAB, ISAB
 from pooling import PMA
 
 class Median(nn.Module):
-    def __init__(self, head_num = 4, use_layer_norm = True):
+    def __init__(self, head_num = 4, use_layer_norm = True, split = False):
         super().__init__()
         self.encoder = nn.Sequential(
-            SAB(head_num, 1, 64),
-            SAB(head_num, 64, 64)
+            SAB(head_num, 1, 64, split = split),
+            SAB(head_num, 64, 64, split = split)
         )
         self.decoder = nn.Sequential(
-            PMA(1, head_num, 64, use_layer_norm),
+            PMA(1, head_num, 64, use_layer_norm, split),
             nn.Linear(64, 1)
         )
 

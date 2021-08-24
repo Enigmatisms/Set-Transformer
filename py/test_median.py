@@ -9,7 +9,6 @@ import argparse
 from torch import optim
 from datetime import datetime
 from torch.autograd import Variable as Var
-from torchvision.utils import save_image
 
 from torch import optim
 from torch import nn
@@ -37,9 +36,11 @@ if __name__ == "__main__":
     parser.add_argument("--eval_time", type = int, default = 5, help = "Evaluate performance every <.> times")
     parser.add_argument("--gamma", type = float, default = 0.9995, help = "Expo lr gamma coefficient")
     parser.add_argument("-d", "--del_dir", action = "store_true", help = "Delete dir ./logs and start new tensorboard records")
+    parser.add_argument("-s", "--split", action = "store_true", help = "Use split instead of remapping in MAB")
     parser.add_argument("-c", "--cuda", default = False, action = "store_true", help = "Use CUDA to speed up training")
+    parser.add_argument("-l", "--load", default = False, action = "store_true", help = "Load from ./model/ folder")
     args = parser.parse_args()
-
+    path = "../model/model.pth"
     epochs = args.epochs
     del_dir = args.del_dir
     use_cuda = args.cuda
@@ -49,7 +50,15 @@ if __name__ == "__main__":
     eval_time = args.eval_time
     head_num = args.head_num
 
-    med_net = Median(head_num, True)
+    med_net = Median(head_num, True, args.split)
+    if args.load:
+        save = torch.load(path)   # 保存的优化器以及模型参数
+        save_model = save['model']                  # 保存的模型参数
+        model_dict = med_net.state_dict()              # 当前网络参数
+        state_dict = {k:v for k, v in save_model.items() if k in model_dict}    # 找出在当前网络中的参数
+        model_dict.update(state_dict)
+        med_net.load_state_dict(model_dict) 
+        print("Trained model is loaded from '%s'."%(path))
 
     if use_cuda and torch.cuda.is_available():
         med_net = med_net.cuda()
@@ -62,8 +71,9 @@ if __name__ == "__main__":
     time_stamp = "{0:%Y-%m-%d/%H-%M-%S}-epoch{1}/".format(datetime.now(), epochs)
     writer = SummaryWriter(log_dir = logdir+time_stamp)
 
-    opt = optim.Adam(med_net.parameters(), lr = 1e-3)
-    opt_sch = optim.lr_scheduler.ExponentialLR(opt, gamma = args.gamma)
+    opt = optim.Adam([{'params':med_net.parameters(), 'initial_lr':3e-3}], lr = 1e-4)
+    # opt_sch = optim.lr_scheduler.MultiStepLR(opt, [200, 1000], gamma = args.gamma, last_epoch = -1)
+    # opt_sch = optim.lr_scheduler.ExponentialLR(opt, gamma = args.gamma)
     loss_func = nn.L1Loss()
     right_cnt = 0
     for i in range(epochs):
@@ -78,7 +88,7 @@ if __name__ == "__main__":
         loss = loss_func(pred, Y)
         loss.backward()
         opt.step()
-        opt_sch.step()
+        # opt_sch.step()
         right_cnt += calcAcc(pred, Y)
         if i % eval_time == 0:
             train_acc = (right_cnt / (batch_size * eval_time))
@@ -99,8 +109,8 @@ if __name__ == "__main__":
                     eval_acc += calcAcc(pred, Y)
                 test_loss *= 0.1
                 eval_acc /= (10 * batch_size)
-            print("Epoch: %5d / %5d\t train set loss: %.5f\t test set loss: %.5f\t acc: %.4f\t test acc: %.4f\tlr: %.8f"%(
-                i, epochs, loss.item(), test_loss.item(), train_acc, eval_acc, opt_sch.get_last_lr()[-1]
+            print("Epoch: %5d / %5d\t train set loss: %.5f\t test set loss: %.5f\t acc: %.4f\t test acc: %.4f"%(
+                i, epochs, loss.item(), test_loss.item(), train_acc, eval_acc,# opt_sch.get_last_lr()[-1]
             ))
             writer.add_scalar('Loss/Train Loss', loss, i)
             writer.add_scalar('Loss/Eval loss', test_loss, i)
@@ -108,5 +118,10 @@ if __name__ == "__main__":
             writer.add_scalar('Acc/Eval Accuracy', eval_acc, i)
             med_net.train()
     writer.close()
+    torch.save({
+        'model': med_net.state_dict(),
+        'optimizer': opt.state_dict()},
+        "../model/model2.pth"
+    )
     print("Output completed.")
     
