@@ -40,7 +40,7 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--cuda", default = False, action = "store_true", help = "Use CUDA to speed up training")
     parser.add_argument("-l", "--load", default = False, action = "store_true", help = "Load from ./model/ folder")
     args = parser.parse_args()
-    path = "../model/model.pth"
+    path = "../model/model4.pth"
     epochs = args.epochs
     del_dir = args.del_dir
     use_cuda = args.cuda
@@ -71,10 +71,10 @@ if __name__ == "__main__":
     time_stamp = "{0:%Y-%m-%d/%H-%M-%S}-epoch{1}/".format(datetime.now(), epochs)
     writer = SummaryWriter(log_dir = logdir+time_stamp)
 
-    opt = optim.Adam([{'params':med_net.parameters(), 'initial_lr':3e-3}], lr = 1e-4)
-    # opt_sch = optim.lr_scheduler.MultiStepLR(opt, [200, 1000], gamma = args.gamma, last_epoch = -1)
+    opt = optim.Adam([{'params':med_net.parameters(), 'initial_lr':3e-3}], lr = 5.0e-6)
+    opt_sch = optim.lr_scheduler.MultiStepLR(opt, [10000, 20000], gamma = 0.6, last_epoch = -1)
     # opt_sch = optim.lr_scheduler.ExponentialLR(opt, gamma = args.gamma)
-    loss_func = nn.L1Loss()
+    loss_func = nn.L1Loss().cuda()
     right_cnt = 0
     for i in range(epochs):
         opt.zero_grad()
@@ -84,11 +84,13 @@ if __name__ == "__main__":
         if use_cuda:
             X = X.cuda()
             Y = Y.cuda()
-        pred = med_net(X)
-        loss = loss_func(pred, Y)
-        loss.backward()
-        opt.step()
-        # opt_sch.step()
+        for j in range(5):
+            pred = med_net(X)
+            loss = loss_func(pred, Y)
+            loss.backward()
+            opt.step()
+            opt_sch.step()
+            opt.zero_grad()
         right_cnt += calcAcc(pred, Y)
         if i % eval_time == 0:
             train_acc = (right_cnt / (batch_size * eval_time))
@@ -109,8 +111,8 @@ if __name__ == "__main__":
                     eval_acc += calcAcc(pred, Y)
                 test_loss *= 0.1
                 eval_acc /= (10 * batch_size)
-            print("Epoch: %5d / %5d\t train set loss: %.5f\t test set loss: %.5f\t acc: %.4f\t test acc: %.4f"%(
-                i, epochs, loss.item(), test_loss.item(), train_acc, eval_acc,# opt_sch.get_last_lr()[-1]
+            print("Epoch: %5d / %5d\t train set loss: %.5f\t test set loss: %.5f\t acc: %.4f\t test acc: %.4f\tlr: %.8lf"%(
+                i, epochs, loss.item(), test_loss.item(), train_acc, eval_acc, opt_sch.get_last_lr()[-1]
             ))
             writer.add_scalar('Loss/Train Loss', loss, i)
             writer.add_scalar('Loss/Eval loss', test_loss, i)
@@ -121,7 +123,7 @@ if __name__ == "__main__":
     torch.save({
         'model': med_net.state_dict(),
         'optimizer': opt.state_dict()},
-        "../model/model2.pth"
+        "../model/model5.pth"
     )
     print("Output completed.")
     
